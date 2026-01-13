@@ -24,6 +24,12 @@ jobs:
       - name: Run AUT
         run: docker run --network=isolated -p 80:80 --name docker-apache -d my-php-site:latest
 
+      - name: Debug AUT response
+        run: |
+          docker logs docker-apache --tail 200
+          curl -i http://localhost:80/ | head -n 30
+
+
       - name: Selenium Preparation
         run: |
           docker run --network=isolated -d \
@@ -48,7 +54,7 @@ jobs:
         run: pip install -U selenium
 
       - name: Run test
-        run: python tests/hello_aut.py ${{ env.URL }}
+        run: python tests/hello_aut.py ${{ env.URL }}/index.php
 
       - name: Stop docker
         run: |
