@@ -35,7 +35,7 @@ jobs:
 
       - name: Get AUT URL
         run: |
-          URL=http://$(ip -6 addr show docker0 | awk '{print $4}' | cut -d '/' -f 1)
+          URL=http://docker-apache
           echo "URL=$URL" >> $GITHUB_ENV
 
       - name: Wait for Selenium Hub
