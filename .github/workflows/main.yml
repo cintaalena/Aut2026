@@ -7,9 +7,20 @@ on:
 
 jobs:
   test:
-    name: Functional Test
-    permissions: write-all
+    name: Functional Test (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    permissions: write-all
+
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, chrome, edge]
+
+    env:
+      # Browser dipakai oleh test Python
+      BROWSER: ${{ matrix.browser }}
+      # Selenium endpoint untuk Remote WebDriver
+      SELENIUM_URL: http://localhost:4444/wd/hub
 
     steps:
       - name: Checkout the repo
@@ -18,52 +29,57 @@ jobs:
       - name: Create isolated network
         run: docker network create --driver bridge isolated
 
-      - name: Deploy AUT
+      - name: Build AUT image
         run: docker build -t my-php-site:latest .
 
       - name: Run AUT
         run: docker run --network=isolated -p 80:80 --name docker-apache -d my-php-site:latest
 
-      - name: Debug AUT response
-        run: |
-          docker logs docker-apache --tail 200
-          curl -i http://localhost:80/ | head -n 30
-
-
-      - name: Selenium Preparation
-        run: |
-          docker run --network=isolated -d \
-            -p 4444:4444 \
-            -p 7900:7900 \
-            --shm-size="2g" \
-            --name firefox-standalone \
-            selenium/standalone-firefox:latest
-
-      - name: Get AUT URL
+      - name: Set AUT URL
         run: |
           URL=http://docker-apache
           echo "URL=$URL" >> $GITHUB_ENV
 
+      - name: Start Selenium (${{ matrix.browser }})
+        run: |
+          if [ "${{ matrix.browser }}" = "chrome" ]; then
+            IMG="selenium/standalone-chrome:latest"
+          elif [ "${{ matrix.browser }}" = "edge" ]; then
+            IMG="selenium/standalone-edge:latest"
+          else
+            IMG="selenium/standalone-firefox:latest"
+          fi
+
+          docker run --network=isolated -d \
+            -p 4444:4444 \
+            -p 7900:7900 \
+            --shm-size="2g" \
+            --name selenium-standalone \
+            $IMG
+
       - name: Wait for Selenium Hub
-        run: sh wait.sh
+        run: |
+          until curl --silent --head --fail http://localhost:4444/wd/hub/status > /dev/null; do
+            echo "waiting for selenium hub..."
+            sleep 1
+          done
 
-      - name: Check the Hub
-        run: curl http://localhost:4444/ui
-
-      - name: Install Selenium client
+      - name: Install Python dependencies
         run: pip install -U selenium
 
       - name: Run test
-        run: python tests/hello_aut.py ${{ env.URL }}/index.php
+        run: python tests/hello_aut.py ${{ env.URL }}
 
-      - name: Upload Artifact
+      - name: Upload screenshot artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Screenshot
+          name: screenshot-${{ matrix.browser }}
           path: screenshot.png
-    
+
       - name: Stop docker
+        if: always()
         run: |
-          docker stop docker-apache
-          docker stop firefox-standalone
+          docker logs docker-apache --tail 200 || true
+          docker logs selenium-standalone --tail 200 || true
+          docker stop docker-apache selenium-standalone || true
